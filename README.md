@@ -117,3 +117,13 @@ Notes:
 - Coding style: follow project conventions
 - Tests: unit and integration tests with JUnit 5
 - CI: GitHub Actions for build and tests
+
+## Formatting
+
+This project uses Spotless with google-java-format. To format code locally run:
+
+```bash
+./gradlew :app:format
+```
+
+CI will run `./gradlew spotlessCheck` and fail if formatting is not applied.

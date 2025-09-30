@@ -42,3 +42,10 @@ spotless {
         target 'src/main/java/**/*.java', 'src/test/java/**/*.java'
     }
 }
+
+// Convenience alias so contributors can run formatting with a simple task name:
+tasks.register('format') {
+    description = 'Format source files using Spotless (google-java-format).'
+    group = 'formatting'
+    dependsOn 'spotlessApply'
+}
