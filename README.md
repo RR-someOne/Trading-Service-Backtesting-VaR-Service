@@ -51,24 +51,8 @@ Observable, testable, and deployable (Docker + CI).
 - CI: GitHub Actions / GitLab CI
 - Metrics: Micrometer + Prometheus + Grafana
 
-## Project layout (suggested)
+<img width="600" height="367" alt="Screenshot 2025-09-30 at 10 39 07 AM" src="https://github.com/user-attachments/assets/1976f16c-58fd-4961-8128-f0b50b98619b" />
 
-algo-trading-backend/
-├─ build.gradle
-├─ gradlew
-├─ settings.gradle
-├─ src/main/java/com/example/algotrading/
-│  ├─ Application.java
-│  ├─ api/                # REST controllers (status, start/stop)
-│  ├─ config/
-│  ├─ engine/             # Trading engine (live)
-│  ├─ backtest/           # Backtesting engine
-│  ├─ strategy/           # Strategy implementations & AI model wrapper
-│  ├─ risk/               # VaR service, risk checks
-│  ├─ data/               # Market data ingestion & storage adapters
-│  ├─ persistence/        # Repositories / DAOs
-│  └─ model/
-└─ src/test/java/...
 
 ## Getting started
 
