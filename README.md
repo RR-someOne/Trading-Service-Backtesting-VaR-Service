@@ -70,11 +70,47 @@ algo-trading-backend/
 │  └─ model/
 └─ src/test/java/...
 
-## Getting started (TBD)
+## Getting started
 
-- Build: ./gradlew build
-- Run: java -jar build/libs/... (TBD)
-- Docker: Dockerfile + docker-compose (TBD)
+Quick steps to build, run and test the project locally. Adjust the commands if your project uses Spring Boot / different jar name.
+
+Build the project with Gradle:
+
+```bash
+./gradlew clean build
+```
+
+Run the application (if packaged as a fat/boot jar):
+
+```bash
+java -jar build/libs/<your-app>.jar
+```
+
+Alternatively (if using Spring Boot plugin):
+
+```bash
+./gradlew bootRun
+```
+
+Run tests:
+
+```bash
+./gradlew test
+```
+
+Docker (build & run):
+
+```bash
+# build the project first, then build the image
+./gradlew clean build
+docker build -t trading-service:latest .
+# run the container, mapping port 8080
+docker run -p 8080:8080 trading-service:latest
+```
+
+Notes:
+- Replace `<your-app>.jar` with the actual jar filename produced under `build/libs/`.
+- If you want a multi-stage Docker build that compiles inside the image, I can add that variant.
 
 ## Development notes (TBD)
 

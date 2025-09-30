@@ -1,0 +1,11 @@
+# ignore build artifacts and IDE configs
+build/
+.gradle/
+.gradle
+out/
+*.log
+*.tmp
+.DS_Store
+.idea/
+.vscode/
+.git
