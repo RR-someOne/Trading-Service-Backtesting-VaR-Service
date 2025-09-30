@@ -8,6 +8,7 @@
 plugins {
     // Apply the application plugin to add support for building a CLI application in Java.
     id 'application'
+    id 'com.diffplug.spotless' version '6.19.0'
 }
 
 repositories {
@@ -33,4 +34,11 @@ java {
 application {
     // Define the main class for the application.
     mainClass = 'com.trading.service.App'
+}
+
+spotless {
+    java {
+        googleJavaFormat('1.17.0')
+        target 'src/main/java/**/*.java', 'src/test/java/**/*.java'
+    }
 }
