@@ -1,6 +1,7 @@
 package com.trading.service.risk;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import org.apache.commons.math3.distribution.NormalDistribution;
@@ -48,5 +49,38 @@ public class VaRService {
         double z = Math.abs(nd.inverseCumulativeProbability(1 - confidenceLevel)); // positive z
         return z * std * portfolioValue;
     }
+
+
+    /**
+     * Monte Carlo VaR by simulating returns from a normal distribution fitted to historical returns.
+     * Uses Apache Commons Math's NormalDistribution for sampling.
+     */ 
+
+public static double monteCarloVaR(List<Double> returns, double confidenceLevel, double portfolioValue, int sims) {
+    // input validation
+    if (returns == null || returns.isEmpty() || portfolioValue <= 0 || confidenceLevel <= 0 || confidenceLevel >= 1 || sims <= 0) {
+        return 0.0;
+    }
+
+    double mean = returns.stream().mapToDouble(d -> d).average().orElse(0.0);
+    double variance = returns.stream().mapToDouble(r -> Math.pow(r - mean, 2)).average().orElse(0.0);
+    double std = Math.sqrt(Math.max(0.0, variance));
+
+    // If std is zero (no variation) then simulated returns are all the mean; VaR from distribution is zero
+    if (std == 0.0) {
+        return 0.0;
+    }
+
+    NormalDistribution nd = new NormalDistribution(mean, std);
+    double[] simulated = new double[sims];
+    for (int i = 0; i < sims; i++) {
+        simulated[i] = nd.sample();
+    }
+    Arrays.sort(simulated);
+    int idx = (int) Math.floor((1 - confidenceLevel) * sims);
+    double ret = simulated[Math.max(0, idx)];
+    return -ret * portfolioValue;
+}
+
 
 }
