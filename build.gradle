@@ -22,3 +22,8 @@ subprojects {
         implementation 'org.apache.commons:commons-math3:3.6.1'
     }
 }
+ 
+// Add test dependency for root project tests
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}

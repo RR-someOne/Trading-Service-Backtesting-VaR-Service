@@ -75,4 +75,34 @@ public class VaRServiceTest {
     // sims <= 0 should be guarded; expect 0
     assertEquals(0.0, VaRService.monteCarloVaR(r, 0.95, 1000.0, 0), 1e-12);
   }
+
+  @Test
+  public void testMonteCarloVaR_statisticalAgreement() {
+    // Generate deterministic returns using a seeded RNG so the test is repeatable
+    java.util.Random rnd = new java.util.Random(12345);
+    List<Double> returns = new java.util.ArrayList<>();
+    final int n = 10000;
+    double sigma = 0.01; // 1% std
+    for (int i = 0; i < n; i++) {
+      returns.add(rnd.nextGaussian() * sigma);
+    }
+
+    double portfolio = 1000.0;
+    double param = VaRService.parametricVaR(returns, 0.95, portfolio);
+
+    // Monte Carlo with many simulations should be reasonably close to parametric VaR
+    double mc = VaRService.monteCarloVaR(returns, 0.95, portfolio, 20000);
+    // Allow relative tolerance of 15% to account for sampling variability
+    double relDiff = Math.abs(mc - param) / (param == 0.0 ? 1.0 : param);
+    assertTrue("Monte Carlo VaR should be within 15% of parametric VaR; relDiff=" + relDiff, relDiff < 0.15);
+  }
+
+  @Test
+  public void testMonteCarloVaR_nonNegativeAndBounded() {
+    List<Double> returns = Arrays.asList(-0.05, -0.02, 0.0, 0.02, 0.05);
+    double mc = VaRService.monteCarloVaR(returns, 0.95, 1000.0, 5000);
+    // Monte Carlo VaR must be non-negative and cannot exceed portfolio value in typical cases
+    assertTrue(mc >= 0.0);
+    assertTrue(mc <= 1000.0);
+  }
 }
