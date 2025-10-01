@@ -1,3 +1,92 @@
+# Gradle
+/.gradle/
+/build/
+/app/build/
+**/build/
+/.idea/
+/.gradle/
+gradle-app.setting
+
+# Java
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+*.apk
+*.class
+*.log
+hs_err_pid*
+
+# Eclipse
+.classpath
+.project
+.settings/
+
+# IntelliJ
+*.iml
+.idea/
+out/
+
+# VS Code
+.vscode/
+
+# Mac
+.DS_Store
+Icon
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+env/
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+pip-wheel-metadata/
+.Python
+build/**
+dist/
+*.egg-info/
+.pytest_cache/
+
+# Virtualenv
+venv/
+ENV/
+.venv/
+
+# Distribution / Packaging
+*.class
+*.war
+*.jar
+*.nar
+*.zip
+*.tar.gz
+
+# Logs
+*.log
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Misc
+*.swp
+*~
+.cache/
+.env
+local.properties
+
+# Gradle wrapper
+/.gradle/
+gradle-wrapper.jar
 # Ignore Gradle project-specific cache directory
 .gradle
 
