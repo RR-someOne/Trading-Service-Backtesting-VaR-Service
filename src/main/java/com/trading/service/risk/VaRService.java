@@ -6,81 +6,92 @@ import java.util.Collections;
 import java.util.List;
 import org.apache.commons.math3.distribution.NormalDistribution;
 
-/**
- * Value-at-Risk service (historical/parametric/monte-carlo).
- */
+/** Value-at-Risk service (historical/parametric/monte-carlo). */
 public class VaRService {
 
-    public VaRService() {}
+  public VaRService() {}
 
-    /**
-     * Historical VaR: returns a positive number representing loss at the given confidence level.
-     */
-    public static double historicalVaR(List<Double> returns, double confidenceLevel, double portfolioValue) {
-        if (returns == null || returns.isEmpty() || portfolioValue <= 0 || confidenceLevel <= 0 || confidenceLevel >= 1) {
-            return 0.0;
-        }
+  /** Historical VaR: returns a positive number representing loss at the given confidence level. */
+  public static double historicalVaR(
+      List<Double> returns, double confidenceLevel, double portfolioValue) {
+    if (returns == null
+        || returns.isEmpty()
+        || portfolioValue <= 0
+        || confidenceLevel <= 0
+        || confidenceLevel >= 1) {
+      return 0.0;
+    }
 
-        List<Double> sorted = new ArrayList<>(returns);
-        Collections.sort(sorted); // ascending
+    List<Double> sorted = new ArrayList<>(returns);
+    Collections.sort(sorted); // ascending
     // Use a conservative (less extreme) selection for small samples by taking the
     // ceiling of the percentile index. This aligns with the test expectation
     // for very small sample sizes where interpolation isn't applied.
     int idx = (int) Math.ceil((1 - confidenceLevel) * sorted.size());
     idx = Math.max(0, Math.min(sorted.size() - 1, idx));
-        double percentileReturn = sorted.get(idx);
-        return -percentileReturn * portfolioValue;
-    }
+    double percentileReturn = sorted.get(idx);
+    return -percentileReturn * portfolioValue;
+  }
 
-    /**
-     * Parametric VaR assuming returns are approximately normal. Uses the inverse CDF (quantile)
-     * from Apache Commons Math's NormalDistribution.
-     */
-    public static double parametricVaR(List<Double> returns, double confidenceLevel, double portfolioValue) {
-        if (returns == null || returns.isEmpty() || portfolioValue <= 0 || confidenceLevel <= 0 || confidenceLevel >= 1) {
-            return 0.0;
-        }
-
-        double mean = returns.stream().mapToDouble(d -> d).average().orElse(0.0);
-        double variance = returns.stream().mapToDouble(r -> Math.pow(r - mean, 2)).average().orElse(0.0);
-        double std = Math.sqrt(Math.max(0.0, variance));
-
-        NormalDistribution nd = new NormalDistribution(0, 1);
-        double z = Math.abs(nd.inverseCumulativeProbability(1 - confidenceLevel)); // positive z
-        return z * std * portfolioValue;
-    }
-
-
-    /**
-     * Monte Carlo VaR by simulating returns from a normal distribution fitted to historical returns.
-     * Uses Apache Commons Math's NormalDistribution for sampling.
-     */ 
-
-public static double monteCarloVaR(List<Double> returns, double confidenceLevel, double portfolioValue, int sims) {
-    // input validation
-    if (returns == null || returns.isEmpty() || portfolioValue <= 0 || confidenceLevel <= 0 || confidenceLevel >= 1 || sims <= 0) {
-        return 0.0;
+  /**
+   * Parametric VaR assuming returns are approximately normal. Uses the inverse CDF (quantile) from
+   * Apache Commons Math's NormalDistribution.
+   */
+  public static double parametricVaR(
+      List<Double> returns, double confidenceLevel, double portfolioValue) {
+    if (returns == null
+        || returns.isEmpty()
+        || portfolioValue <= 0
+        || confidenceLevel <= 0
+        || confidenceLevel >= 1) {
+      return 0.0;
     }
 
     double mean = returns.stream().mapToDouble(d -> d).average().orElse(0.0);
-    double variance = returns.stream().mapToDouble(r -> Math.pow(r - mean, 2)).average().orElse(0.0);
+    double variance =
+        returns.stream().mapToDouble(r -> Math.pow(r - mean, 2)).average().orElse(0.0);
     double std = Math.sqrt(Math.max(0.0, variance));
 
-    // If std is zero (no variation) then simulated returns are all the mean; VaR from distribution is zero
+    NormalDistribution nd = new NormalDistribution(0, 1);
+    double z = Math.abs(nd.inverseCumulativeProbability(1 - confidenceLevel)); // positive z
+    return z * std * portfolioValue;
+  }
+
+  /**
+   * Monte Carlo VaR by simulating returns from a normal distribution fitted to historical returns.
+   * Uses Apache Commons Math's NormalDistribution for sampling.
+   */
+  public static double monteCarloVaR(
+      List<Double> returns, double confidenceLevel, double portfolioValue, int sims) {
+    // input validation
+    if (returns == null
+        || returns.isEmpty()
+        || portfolioValue <= 0
+        || confidenceLevel <= 0
+        || confidenceLevel >= 1
+        || sims <= 0) {
+      return 0.0;
+    }
+
+    double mean = returns.stream().mapToDouble(d -> d).average().orElse(0.0);
+    double variance =
+        returns.stream().mapToDouble(r -> Math.pow(r - mean, 2)).average().orElse(0.0);
+    double std = Math.sqrt(Math.max(0.0, variance));
+
+    // If std is zero (no variation) then simulated returns are all the mean; VaR from distribution
+    // is zero
     if (std == 0.0) {
-        return 0.0;
+      return 0.0;
     }
 
     NormalDistribution nd = new NormalDistribution(mean, std);
     double[] simulated = new double[sims];
     for (int i = 0; i < sims; i++) {
-        simulated[i] = nd.sample();
+      simulated[i] = nd.sample();
     }
     Arrays.sort(simulated);
     int idx = (int) Math.floor((1 - confidenceLevel) * sims);
     double ret = simulated[Math.max(0, idx)];
     return -ret * portfolioValue;
-}
-
-
+  }
 }

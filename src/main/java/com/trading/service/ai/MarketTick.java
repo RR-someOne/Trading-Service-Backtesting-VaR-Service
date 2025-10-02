@@ -5,11 +5,8 @@
 
 package com.trading.service.ai;
 
-/**
- * Simple market tick placeholder used for early development.
- */
+/** Simple market tick placeholder used for early development. */
 public class MarketTick {
 
-	public MarketTick() {}
-
+  public MarketTick() {}
 }

@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'com.diffplug.spotless' version '6.19.0'
 }
 
 repositories {
@@ -26,4 +27,19 @@ subprojects {
 // Add test dependency for root project tests
 dependencies {
     testImplementation 'junit:junit:4.13.2'
+}
+
+// Spotless configuration for root project
+spotless {
+    java {
+        googleJavaFormat('1.17.0')
+        target 'src/main/java/**/*.java', 'src/test/java/**/*.java'
+    }
+}
+
+// Convenience alias so contributors can run formatting with a simple task name:
+tasks.register('format') {
+    description = 'Format source files using Spotless (google-java-format).'
+    group = 'formatting'
+    dependsOn 'spotlessApply'
 }

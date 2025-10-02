@@ -15,7 +15,8 @@ public class VaRServiceTest {
   public void testHistoricalVaR_smallSample() {
     List<Double> returns = Arrays.asList(-0.02, -0.01, 0.0, 0.01, 0.02);
     double var = VaRService.historicalVaR(returns, 0.95, 1000.0);
-    // With the conservative ceil-index logic this sample yields the second-worst loss: 0.01 * 1000 = 10
+    // With the conservative ceil-index logic this sample yields the second-worst loss: 0.01 * 1000
+    // = 10
     assertEquals(10.0, var, 1e-6);
   }
 
@@ -38,7 +39,8 @@ public class VaRServiceTest {
     List<Double> returns = Arrays.asList(-0.02, -0.01, 0.0, 0.01, 0.02);
     // compute expected via same statistical formula used in the implementation
     double mean = returns.stream().mapToDouble(d -> d).average().orElse(0.0);
-    double variance = returns.stream().mapToDouble(r -> Math.pow(r - mean, 2)).average().orElse(0.0);
+    double variance =
+        returns.stream().mapToDouble(r -> Math.pow(r - mean, 2)).average().orElse(0.0);
     double std = Math.sqrt(Math.max(0.0, variance));
     NormalDistribution nd = new NormalDistribution(0, 1);
     double z = Math.abs(nd.inverseCumulativeProbability(1 - 0.95));
@@ -94,7 +96,9 @@ public class VaRServiceTest {
     double mc = VaRService.monteCarloVaR(returns, 0.95, portfolio, 20000);
     // Allow relative tolerance of 15% to account for sampling variability
     double relDiff = Math.abs(mc - param) / (param == 0.0 ? 1.0 : param);
-    assertTrue("Monte Carlo VaR should be within 15% of parametric VaR; relDiff=" + relDiff, relDiff < 0.15);
+    assertTrue(
+        "Monte Carlo VaR should be within 15% of parametric VaR; relDiff=" + relDiff,
+        relDiff < 0.15);
   }
 
   @Test

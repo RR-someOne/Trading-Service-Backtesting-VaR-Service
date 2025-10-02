@@ -24,11 +24,20 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
+    - name: Validate Gradle wrapper
+      uses: gradle/actions/wrapper-validation@v3
+
     - name: Check code formatting
       run: ./gradlew spotlessCheck --no-daemon
 
-    - name: Build (Gradle)
+    - name: Build with tests
       run: ./gradlew clean build --no-daemon
 
-    - name: Run tests
-      run: ./gradlew test --no-daemon
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: |
+          **/build/reports/tests/
+          **/build/test-results/

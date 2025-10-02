@@ -5,11 +5,8 @@
 
 package com.trading.service.backtesting;
 
-/**
- * Loader for historical market data used by the backtester.
- */
+/** Loader for historical market data used by the backtester. */
 public class MarketDataLoader {
 
-	public MarketDataLoader() {}
-
+  public MarketDataLoader() {}
 }
