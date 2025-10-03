@@ -35,7 +35,7 @@ Observable, testable, and deployable (Docker + CI).
 - API (REST/gRPC for status and control)
 - Monitoring (Prometheus/Grafana, logs)
 
-# Neural Machine Translation for interpreting financial documents for multi-language support
+## Neural Machine Translation for interpreting financial documents for multi-language support
 
 Multilingual Transformer-based machine-translation subsystem for financial documents, integrated with your Java AI Algorithmic Trading Service (backtesting & VaR). It covers choices, data & preprocessing, training/fine-tuning code (Hugging Face + PyTorch), ONNX export notes, a production serving pattern (FastAPI microservice + Java client), model/version metadata, glossary/term-preservation for finance, evaluation, and operational considerations.
 
