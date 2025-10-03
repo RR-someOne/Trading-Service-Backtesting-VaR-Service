@@ -12,6 +12,7 @@ dependencies {
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
     implementation 'com.fasterxml.jackson.core:jackson-annotations:2.15.2'
     implementation 'com.fasterxml.jackson.core:jackson-core:2.15.2'
+    implementation 'com.microsoft.onnxruntime:onnxruntime:1.18.0'
 }
 
 // Apply commons-math to subprojects so modules (like `app`) can use it.
@@ -27,6 +28,7 @@ subprojects {
         implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
         implementation 'com.fasterxml.jackson.core:jackson-annotations:2.15.2'
         implementation 'com.fasterxml.jackson.core:jackson-core:2.15.2'
+        implementation 'com.microsoft.onnxruntime:onnxruntime:1.18.0'
         testImplementation 'junit:junit:4.13.2'
         testImplementation 'org.hamcrest:hamcrest:2.2'
         testImplementation 'org.mockito:mockito-core:4.11.0'
