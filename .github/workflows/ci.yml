@@ -18,6 +18,35 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Early network hardening (disable IPv6, set DNS, force IPv4)
+      run: |
+        echo "=== Early Network Hardening ==="
+        echo 'net.ipv6.conf.all.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
+        echo 'net.ipv6.conf.default.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
+        echo 'net.ipv6.conf.lo.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
+        sudo sysctl -p || echo "sysctl reload failed (non-fatal)"
+        # Prefer IPv4
+        echo 'precedence ::ffff:0:0/96  100' | sudo tee -a /etc/gai.conf
+        # DNS bootstrap
+        printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\nnameserver 208.67.222.222\n' | sudo tee /etc/resolv.conf
+        echo "JAVA_OPTS=-Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false" >> $GITHUB_ENV
+        echo "GRADLE_OPTS=-Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false" >> $GITHUB_ENV
+        echo "IPv6 disabled value: $(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 || true)"
+
+    - name: Pre-flight connectivity warm-up
+      run: |
+        echo "=== Pre-flight Network Warm-Up ==="
+        hosts=(repo.maven.apache.org repo1.maven.org plugins.gradle.org maven.aliyun.com api.github.com)
+        for h in "${hosts[@]}"; do
+          echo "-- Probing $h --"
+          for i in 1 2 3; do
+            curl -4 -s -o /dev/null -w "Attempt %d HTTP %{http_code} time %{time_total}s DNS %{time_namelookup}s connect %{time_connect}s\n" "$i" https://$h/ || echo "Attempt $i failed"
+            sleep 2
+          done
+        done
+        echo "DNS trace for repo.maven.apache.org:" || true
+        dig +trace repo.maven.apache.org || true
+
     - name: Set up JDK ${{ env.JAVA_VERSION }}
       uses: actions/setup-java@v4
       with:
@@ -49,27 +78,7 @@ jobs:
         cache-disabled: false
         cache-read-only: false
 
-    - name: Disable IPv6 and configure networking
-      run: |
-        echo "=== Disabling IPv6 System-wide ==="
-        # Completely disable IPv6 at kernel level
-        echo 'net.ipv6.conf.all.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
-        echo 'net.ipv6.conf.default.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
-        echo 'net.ipv6.conf.lo.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
-        sudo sysctl -p || echo "sysctl reload failed, continuing..."
-        
-        # Force IPv4 preference in address resolution
-        echo 'precedence ::ffff:0:0/96  100' | sudo tee -a /etc/gai.conf
-        
-        # Configure reliable DNS servers
-        echo 'nameserver 8.8.8.8' | sudo tee /etc/resolv.conf.backup
-        echo 'nameserver 1.1.1.1' | sudo tee -a /etc/resolv.conf.backup
-        echo 'nameserver 208.67.222.222' | sudo tee -a /etc/resolv.conf.backup
-        sudo cp /etc/resolv.conf.backup /etc/resolv.conf
-        
-        # Set environment variables to force IPv4
-        echo "JAVA_OPTS=-Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false" >> $GITHUB_ENV
-        echo "GRADLE_OPTS=-Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false" >> $GITHUB_ENV
+    # (Legacy step removed: IPv6 disable now executed earlier)
         
     - name: Configure Gradle for maximum network resilience
       run: |
@@ -82,7 +91,8 @@ jobs:
         org.gradle.network.retry.initial.delay=5000
         org.gradle.network.retry.max.delay=60000
         org.gradle.network.retry.max.attempts=20
-        systemProp.http.keepAlive=false
+        # Allow keep-alive for pooled connections
+        systemProp.http.keepAlive=true
         systemProp.http.socketTimeout=300000
         systemProp.http.connectionTimeout=300000
         systemProp.http.nonProxyHosts=localhost|127.*|[::1]
@@ -97,10 +107,10 @@ jobs:
         systemProp.gradle.internal.repository.max.retries=10
         systemProp.java.net.preferIPv4Stack=true
         systemProp.java.net.preferIPv6Addresses=false
-        systemProp.http.maxConnections=1
-        systemProp.https.maxConnections=1
+        systemProp.http.maxConnections=6
+        systemProp.https.maxConnections=6
         GRADLEEOF
-        
+
         # Create init script for repository mirrors
         mkdir -p ~/.gradle/init.d
         cat > ~/.gradle/init.d/mirror-repos.gradle << 'INITEOF'
@@ -108,13 +118,15 @@ jobs:
             repositories.all { ArtifactRepository repo ->
                 if (repo instanceof MavenArtifactRepository) {
                     def originalUrl = repo.url.toString()
-                    if (originalUrl.startsWith('https://repo1.maven.org/maven2') || 
+                    if (originalUrl.startsWith('https://repo1.maven.org/maven2') ||
                         originalUrl.startsWith('https://repo.maven.apache.org/maven2')) {
-                        // Add mirrors for Maven Central
+                        // Add mirrors for Maven Central (optionally skip primary if MIRRORS_ONLY is set)
                         remove repo
-                        maven {
-                            url 'https://repo1.maven.org/maven2/'
-                            allowInsecureProtocol = false
+                        if (!System.getenv('MIRRORS_ONLY')) {
+                            maven {
+                                url 'https://repo1.maven.org/maven2/'
+                                allowInsecureProtocol = false
+                            }
                         }
                         maven {
                             url 'https://maven.aliyun.com/repository/central'
@@ -129,6 +141,11 @@ jobs:
             }
         }
         INITEOF
+
+    - name: Display Gradle network settings
+      run: |
+        echo "=== gradle.properties ==="
+        cat ~/.gradle/gradle.properties || true
 
     - name: Configure Git for reliable operations
       run: |
@@ -234,6 +251,19 @@ jobs:
             -Dorg.gradle.internal.http.socketTimeout=300000 \
             -Djava.net.preferIPv4Stack=true \
             -Djava.net.preferIPv6Addresses=false
+
+    - name: Deep network diagnostics (on failure)
+      if: failure()
+      run: |
+        echo "=== Deep Network Diagnostics ==="
+        echo "Active sockets (first 50):"; ss -tan | head -50 || true
+        echo "Traceroute to repo.maven.apache.org:"; (traceroute -4 repo.maven.apache.org || tracepath repo.maven.apache.org || true)
+        echo "Traceroute to plugins.gradle.org:"; (traceroute -4 plugins.gradle.org || tracepath plugins.gradle.org || true)
+        echo "Curl with --resolve (Cloudflare edge test)"; curl -4 -I --connect-timeout 20 https://repo.maven.apache.org/maven2/ || true
+        echo "DNS detailed:"; dig repo.maven.apache.org ANY || true
+        echo "Network interfaces:"; ip addr || true
+        echo "Routing table:"; ip route || true
+        echo "End deep diagnostics"
 
     - name: Fallback build (without refresh dependencies)
       if: failure()
