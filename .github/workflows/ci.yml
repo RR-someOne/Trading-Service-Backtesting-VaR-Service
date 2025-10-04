@@ -2,9 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
     branches: [ main ]
+
+env:
+  JAVA_VERSION: '17'
 
 jobs:
   build:
@@ -12,20 +15,14 @@ jobs:
     timeout-minutes: 30
 
     steps:
-    - name: Checkout
+    - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
 
-    - name: Set up JDK 17
+    - name: Set up JDK ${{ env.JAVA_VERSION }}
       uses: actions/setup-java@v4
       with:
-        distribution: temurin
-        java-version: '17'
-        cache: gradle
-
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: 'temurin'
 
     - name: Validate Gradle wrapper
       uses: gradle/actions/wrapper-validation@v3
@@ -39,21 +36,53 @@ jobs:
     - name: Configure Gradle for network resilience
       run: |
         mkdir -p ~/.gradle
-        cat > ~/.gradle/gradle.properties << EOF
+        cat > ~/.gradle/gradle.properties << GRADLEEOF
         org.gradle.daemon=false
         org.gradle.parallel=true
         org.gradle.caching=true
         org.gradle.configuration-cache=false
         org.gradle.network.retry.initial.delay=2000
         org.gradle.network.retry.max.delay=30000
-        org.gradle.network.retry.max.attempts=10
+        org.gradle.network.retry.max.attempts=15
         systemProp.http.keepAlive=false
-        systemProp.http.socketTimeout=120000
-        systemProp.http.connectionTimeout=120000
+        systemProp.http.socketTimeout=180000
+        systemProp.http.connectionTimeout=180000
         systemProp.http.nonProxyHosts=localhost|127.*|[::1]
-        systemProp.http.maxRedirects=10
+        systemProp.http.maxRedirects=15
         systemProp.https.protocols=TLSv1.2,TLSv1.3
-        EOF
+        systemProp.http.agent=Gradle/9.1.0
+        systemProp.http.useSystemProxies=false
+        systemProp.https.socketTimeout=180000
+        systemProp.https.connectionTimeout=180000
+        GRADLEEOF
+
+    - name: Configure Git for reliable operations
+      run: |
+        git config --global http.postBuffer 524288000
+        git config --global http.lowSpeedLimit 1000
+        git config --global http.lowSpeedTime 300
+
+    - name: Network diagnostics
+      run: |
+        echo "=== Network Diagnostics ==="
+        echo "Testing connectivity to key repositories..."
+        curl -I --connect-timeout 30 --max-time 60 https://repo.maven.apache.org/maven2/ || echo "Maven Central: Connection issues detected"
+        curl -I --connect-timeout 30 --max-time 60 https://plugins.gradle.org/m2/ || echo "Gradle Plugin Portal: Connection issues detected"
+        echo "DNS resolution test..."
+        nslookup repo.maven.apache.org || echo "DNS resolution issues detected"
+        echo "=== End Diagnostics ==="
+
+    - name: Pre-download dependencies (with retry)
+      uses: nick-fields/retry@v3
+      with:
+        timeout_minutes: 10
+        max_attempts: 5
+        retry_on: error
+        retry_wait_seconds: 30
+        command: |
+          echo "Pre-downloading dependencies to populate cache..."
+          ./gradlew dependencies --refresh-dependencies --no-daemon || echo "Root dependencies download completed with warnings"
+          ./gradlew app:dependencies --refresh-dependencies --no-daemon || echo "App dependencies download completed with warnings"
 
     - name: Check code formatting (with retry)
       uses: nick-fields/retry@v3
@@ -73,20 +102,43 @@ jobs:
         retry_wait_seconds: 60
         command: ./gradlew clean build --no-daemon --refresh-dependencies --parallel --stacktrace
 
+    - name: Fallback build (without refresh dependencies)
+      if: failure()
+      run: |
+        echo "Main build failed, attempting fallback build without dependency refresh..."
+        ./gradlew clean build --no-daemon --stacktrace || {
+          echo "Fallback build also failed. Generating diagnostic information..."
+          echo "=== Gradle Info ==="
+          ./gradlew --version || echo "Could not get Gradle version"
+          echo "=== Java Info ==="
+          java -version || echo "Could not get Java version"
+          echo "=== Disk Space ==="
+          df -h || echo "Could not get disk space info"
+          echo "=== Memory Info ==="
+          free -h || echo "Could not get memory info"
+          exit 1
+        }
+
     - name: Upload test results
       uses: actions/upload-artifact@v4
       if: always()
       with:
         name: test-results
         path: |
-          **/build/reports/tests/
-          **/build/test-results/
+          build/test-results/
+          app/build/test-results/
+          build/reports/
+          app/build/reports/
+        retention-days: 30
 
-    - name: Upload build reports
+    - name: Upload build artifacts
       uses: actions/upload-artifact@v4
-      if: failure()
+      if: success()
       with:
-        name: build-reports
+        name: build-artifacts
         path: |
-          **/build/reports/
-          **/.gradle/
+          build/libs/
+          app/build/libs/
+          build/distributions/
+          app/build/distributions/
+        retention-days: 7
