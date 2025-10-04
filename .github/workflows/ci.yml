@@ -27,34 +27,108 @@ jobs:
     - name: Validate Gradle wrapper
       uses: gradle/actions/wrapper-validation@v3
 
+    - name: Cache all dependencies and build artifacts
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+          ~/.gradle/jdks
+          ~/.gradle/daemon
+          ~/.m2/repository
+          build/
+          app/build/
+        key: full-cache-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml', 'src/**', 'app/src/**') }}
+        restore-keys: |
+          full-cache-${{ runner.os }}-
+          gradle-${{ runner.os }}-
+          
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
         cache-disabled: false
         cache-read-only: false
 
-    - name: Configure Gradle for network resilience
+    - name: Disable IPv6 and configure networking
+      run: |
+        echo "=== Disabling IPv6 System-wide ==="
+        # Completely disable IPv6 at kernel level
+        echo 'net.ipv6.conf.all.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
+        echo 'net.ipv6.conf.default.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
+        echo 'net.ipv6.conf.lo.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
+        sudo sysctl -p || echo "sysctl reload failed, continuing..."
+        
+        # Force IPv4 preference in address resolution
+        echo 'precedence ::ffff:0:0/96  100' | sudo tee -a /etc/gai.conf
+        
+        # Configure reliable DNS servers
+        echo 'nameserver 8.8.8.8' | sudo tee /etc/resolv.conf.backup
+        echo 'nameserver 1.1.1.1' | sudo tee -a /etc/resolv.conf.backup
+        echo 'nameserver 208.67.222.222' | sudo tee -a /etc/resolv.conf.backup
+        sudo cp /etc/resolv.conf.backup /etc/resolv.conf
+        
+        # Set environment variables to force IPv4
+        echo "JAVA_OPTS=-Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false" >> $GITHUB_ENV
+        echo "GRADLE_OPTS=-Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false" >> $GITHUB_ENV
+        
+    - name: Configure Gradle for maximum network resilience
       run: |
         mkdir -p ~/.gradle
         cat > ~/.gradle/gradle.properties << GRADLEEOF
         org.gradle.daemon=false
-        org.gradle.parallel=true
+        org.gradle.parallel=false
         org.gradle.caching=true
         org.gradle.configuration-cache=false
-        org.gradle.network.retry.initial.delay=2000
-        org.gradle.network.retry.max.delay=30000
-        org.gradle.network.retry.max.attempts=15
+        org.gradle.network.retry.initial.delay=5000
+        org.gradle.network.retry.max.delay=60000
+        org.gradle.network.retry.max.attempts=20
         systemProp.http.keepAlive=false
-        systemProp.http.socketTimeout=180000
-        systemProp.http.connectionTimeout=180000
+        systemProp.http.socketTimeout=300000
+        systemProp.http.connectionTimeout=300000
         systemProp.http.nonProxyHosts=localhost|127.*|[::1]
-        systemProp.http.maxRedirects=15
+        systemProp.http.maxRedirects=20
         systemProp.https.protocols=TLSv1.2,TLSv1.3
         systemProp.http.agent=Gradle/9.1.0
         systemProp.http.useSystemProxies=false
-        systemProp.https.socketTimeout=180000
-        systemProp.https.connectionTimeout=180000
+        systemProp.https.socketTimeout=300000
+        systemProp.https.connectionTimeout=300000
+        systemProp.gradle.internal.http.connectionTimeout=300000
+        systemProp.gradle.internal.http.socketTimeout=300000
+        systemProp.gradle.internal.repository.max.retries=10
+        systemProp.java.net.preferIPv4Stack=true
+        systemProp.java.net.preferIPv6Addresses=false
+        systemProp.http.maxConnections=1
+        systemProp.https.maxConnections=1
         GRADLEEOF
+        
+        # Create init script for repository mirrors
+        mkdir -p ~/.gradle/init.d
+        cat > ~/.gradle/init.d/mirror-repos.gradle << 'INITEOF'
+        allprojects {
+            repositories.all { ArtifactRepository repo ->
+                if (repo instanceof MavenArtifactRepository) {
+                    def originalUrl = repo.url.toString()
+                    if (originalUrl.startsWith('https://repo1.maven.org/maven2') || 
+                        originalUrl.startsWith('https://repo.maven.apache.org/maven2')) {
+                        // Add mirrors for Maven Central
+                        remove repo
+                        maven {
+                            url 'https://repo1.maven.org/maven2/'
+                            allowInsecureProtocol = false
+                        }
+                        maven {
+                            url 'https://maven.aliyun.com/repository/central'
+                            allowInsecureProtocol = false
+                        }
+                        maven {
+                            url 'https://jcenter.bintray.com/'
+                            allowInsecureProtocol = false
+                        }
+                    }
+                }
+            }
+        }
+        INITEOF
 
     - name: Configure Git for reliable operations
       run: |
@@ -62,27 +136,81 @@ jobs:
         git config --global http.lowSpeedLimit 1000
         git config --global http.lowSpeedTime 300
 
-    - name: Network diagnostics
+    - name: Check external services and network diagnostics
       run: |
-        echo "=== Network Diagnostics ==="
-        echo "Testing connectivity to key repositories..."
-        curl -I --connect-timeout 30 --max-time 60 https://repo.maven.apache.org/maven2/ || echo "Maven Central: Connection issues detected"
-        curl -I --connect-timeout 30 --max-time 60 https://plugins.gradle.org/m2/ || echo "Gradle Plugin Portal: Connection issues detected"
-        echo "DNS resolution test..."
-        nslookup repo.maven.apache.org || echo "DNS resolution issues detected"
+        echo "=== Network and External Service Diagnostics ==="
+        
+        echo "System networking info:"
+        ip route show || route -n || echo "Route info unavailable"
+        echo "IPv6 status (should be disabled):"
+        cat /proc/sys/net/ipv6/conf/all/disable_ipv6 || echo "IPv6 status unavailable"
+        echo "DNS configuration:"
+        cat /etc/resolv.conf || echo "DNS config unavailable"
+        
+        echo "=== Testing External Services ==="
+        
+        # Maven Central Repository
+        echo "1. Maven Central (repo.maven.apache.org):"
+        curl -4 -I --connect-timeout 30 --max-time 60 https://repo.maven.apache.org/maven2/ && echo "✓ ACCESSIBLE" || echo "✗ FAILED"
+        
+        # Maven Central Mirror
+        echo "2. Maven Central Mirror (repo1.maven.org):"
+        curl -4 -I --connect-timeout 30 --max-time 60 https://repo1.maven.org/maven2/ && echo "✓ ACCESSIBLE" || echo "✗ FAILED"
+        
+        # Gradle Plugin Portal
+        echo "3. Gradle Plugin Portal (plugins.gradle.org):"
+        curl -4 -I --connect-timeout 30 --max-time 60 https://plugins.gradle.org/m2/ && echo "✓ ACCESSIBLE" || echo "✗ FAILED"
+        
+        # GitHub (for actions)
+        echo "4. GitHub API:"
+        curl -4 -I --connect-timeout 30 --max-time 60 https://api.github.com && echo "✓ ACCESSIBLE" || echo "✗ FAILED"
+        
+        # JCenter (backup repository)
+        echo "5. JCenter Repository:"
+        curl -4 -I --connect-timeout 30 --max-time 60 https://jcenter.bintray.com/ && echo "✓ ACCESSIBLE" || echo "✗ FAILED"
+        
+        # Aliyun Maven Mirror (backup)
+        echo "6. Aliyun Maven Mirror:"
+        curl -4 -I --connect-timeout 30 --max-time 60 https://maven.aliyun.com/repository/central && echo "✓ ACCESSIBLE" || echo "✗ FAILED"
+        
+        echo "=== DNS Resolution Tests ==="
+        nslookup repo.maven.apache.org 8.8.8.8 && echo "✓ DNS Google OK" || echo "✗ DNS Google FAILED"
+        nslookup plugins.gradle.org 1.1.1.1 && echo "✓ DNS Cloudflare OK" || echo "✗ DNS Cloudflare FAILED"
+        
+        echo "=== Network Speed Test ==="
+        time curl -4 -o /dev/null -s -w "Download speed: %{speed_download} bytes/sec\n" https://repo.maven.apache.org/maven2/ || echo "Speed test failed"
+        
         echo "=== End Diagnostics ==="
 
-    - name: Pre-download dependencies (with retry)
+    - name: Populate dependency cache aggressively
       uses: nick-fields/retry@v3
       with:
-        timeout_minutes: 10
-        max_attempts: 5
+        timeout_minutes: 20
+        max_attempts: 10
         retry_on: error
-        retry_wait_seconds: 30
+        retry_wait_seconds: 60
         command: |
-          echo "Pre-downloading dependencies to populate cache..."
-          ./gradlew dependencies --refresh-dependencies --no-daemon || echo "Root dependencies download completed with warnings"
-          ./gradlew app:dependencies --refresh-dependencies --no-daemon || echo "App dependencies download completed with warnings"
+          export JAVA_OPTS="-Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false"
+          export GRADLE_OPTS="-Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false"
+          
+          echo "Phase 1: Root project dependency resolution..."
+          ./gradlew --no-daemon --refresh-dependencies --stacktrace \
+            -Dorg.gradle.internal.http.connectionTimeout=300000 \
+            -Dorg.gradle.internal.http.socketTimeout=300000 \
+            -Dorg.gradle.network.retry.max.attempts=20 \
+            dependencies || echo "Root dependencies: completed with warnings"
+          
+          echo "Phase 2: App project dependency resolution..."
+          ./gradlew app:dependencies --no-daemon --refresh-dependencies --stacktrace \
+            -Dorg.gradle.internal.http.connectionTimeout=300000 \
+            -Dorg.gradle.internal.http.socketTimeout=300000 \
+            -Dorg.gradle.network.retry.max.attempts=20 || echo "App dependencies: completed with warnings"
+          
+          echo "Phase 3: Download test dependencies..."
+          ./gradlew --no-daemon testClasses app:testClasses \
+            -Dorg.gradle.internal.http.connectionTimeout=300000 \
+            -Dorg.gradle.internal.http.socketTimeout=300000 \
+            -Dorg.gradle.network.retry.max.attempts=20 || echo "Test dependencies: completed with warnings"
 
     - name: Check code formatting (with retry)
       uses: nick-fields/retry@v3
@@ -96,11 +224,16 @@ jobs:
     - name: Build with tests (with retry)
       uses: nick-fields/retry@v3
       with:
-        timeout_minutes: 25
-        max_attempts: 5
+        timeout_minutes: 30
+        max_attempts: 8
         retry_on: error
-        retry_wait_seconds: 60
-        command: ./gradlew clean build --no-daemon --refresh-dependencies --parallel --stacktrace
+        retry_wait_seconds: 90
+        command: |
+          ./gradlew clean build --no-daemon --stacktrace \
+            -Dorg.gradle.internal.http.connectionTimeout=300000 \
+            -Dorg.gradle.internal.http.socketTimeout=300000 \
+            -Djava.net.preferIPv4Stack=true \
+            -Djava.net.preferIPv6Addresses=false
 
     - name: Fallback build (without refresh dependencies)
       if: failure()
