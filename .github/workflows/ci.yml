@@ -36,14 +36,24 @@ jobs:
     - name: Pre-flight connectivity warm-up
       run: |
         echo "=== Pre-flight Network Warm-Up ==="
-        hosts=(repo.maven.apache.org repo1.maven.org plugins.gradle.org maven.aliyun.com api.github.com)
+        hosts=(repo.maven.apache.org repo1.maven.org plugins.gradle.org api.github.com)
+        unreachable=0
         for h in "${hosts[@]}"; do
-          echo "-- Probing $h --"
-          for i in 1 2 3; do
-            curl -4 -s -o /dev/null -w "Attempt %d HTTP %{http_code} time %{time_total}s DNS %{time_namelookup}s connect %{time_connect}s\n" "$i" https://$h/ || echo "Attempt $i failed"
-            sleep 2
+          echo "-- Probing $h (2 attempts) --"
+          success=0
+          for i in 1 2; do
+            code=$(curl -4 -s -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 20 https://$h/ || echo 000)
+            echo "Attempt $i -> HTTP $code"
+            if [ "$code" = "200" ] || [ "$code" = "301" ] || [ "$code" = "302" ]; then success=1; break; fi
+            sleep 1
           done
+          if [ $success -ne 1 ]; then
+            echo "Host $h unreachable after attempts"; unreachable=$((unreachable+1));
+          fi
         done
+        if [ $unreachable -ge 3 ]; then
+          echo "Too many critical hosts unreachable early; failing fast."; exit 2;
+        fi
         echo "DNS trace for repo.maven.apache.org:" || true
         dig +trace repo.maven.apache.org || true
 
@@ -85,12 +95,13 @@ jobs:
         mkdir -p ~/.gradle
         cat > ~/.gradle/gradle.properties << GRADLEEOF
         org.gradle.daemon=false
-        org.gradle.parallel=false
+        org.gradle.parallel=true
         org.gradle.caching=true
         org.gradle.configuration-cache=false
-        org.gradle.network.retry.initial.delay=5000
-        org.gradle.network.retry.max.delay=60000
-        org.gradle.network.retry.max.attempts=20
+        # Reduced retry aggressiveness to avoid long hangs
+        org.gradle.network.retry.initial.delay=3000
+        org.gradle.network.retry.max.delay=15000
+        org.gradle.network.retry.max.attempts=6
         # Allow keep-alive for pooled connections
         systemProp.http.keepAlive=true
         systemProp.http.socketTimeout=300000
@@ -199,58 +210,25 @@ jobs:
         
         echo "=== End Diagnostics ==="
 
-    - name: Populate dependency cache aggressively
-      uses: nick-fields/retry@v3
-      with:
-        timeout_minutes: 20
-        max_attempts: 10
-        retry_on: error
-        retry_wait_seconds: 60
-        command: |
-          export JAVA_OPTS="-Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false"
-          export GRADLE_OPTS="-Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false"
-          
-          echo "Phase 1: Root project dependency resolution..."
-          ./gradlew --no-daemon --refresh-dependencies --stacktrace \
-            -Dorg.gradle.internal.http.connectionTimeout=300000 \
-            -Dorg.gradle.internal.http.socketTimeout=300000 \
-            -Dorg.gradle.network.retry.max.attempts=20 \
-            dependencies || echo "Root dependencies: completed with warnings"
-          
-          echo "Phase 2: App project dependency resolution..."
-          ./gradlew app:dependencies --no-daemon --refresh-dependencies --stacktrace \
-            -Dorg.gradle.internal.http.connectionTimeout=300000 \
-            -Dorg.gradle.internal.http.socketTimeout=300000 \
-            -Dorg.gradle.network.retry.max.attempts=20 || echo "App dependencies: completed with warnings"
-          
-          echo "Phase 3: Download test dependencies..."
-          ./gradlew --no-daemon testClasses app:testClasses \
-            -Dorg.gradle.internal.http.connectionTimeout=300000 \
-            -Dorg.gradle.internal.http.socketTimeout=300000 \
-            -Dorg.gradle.network.retry.max.attempts=20 || echo "Test dependencies: completed with warnings"
+    - name: Prefetch key dependencies (single attempt)
+      run: |
+        set -e
+        export JAVA_OPTS="-Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false"
+        export GRADLE_OPTS="-Djava.net.preferIPv4Stack=true -Djava.net.preferIPv6Addresses=false"
+        echo "Prefetch: configuration phase & compile classpaths"
+        ./gradlew --no-daemon --stacktrace :dependencies -q || true
+        ./gradlew --no-daemon --stacktrace classes testClasses -x test || true
 
-    - name: Check code formatting (with retry)
-      uses: nick-fields/retry@v3
-      with:
-        timeout_minutes: 15
-        max_attempts: 5
-        retry_on: error
-        retry_wait_seconds: 30
-        command: ./gradlew spotlessCheck --no-daemon --refresh-dependencies --stacktrace
+    - name: Check code formatting
+      run: ./gradlew spotlessCheck --no-daemon --stacktrace
 
-    - name: Build with tests (with retry)
-      uses: nick-fields/retry@v3
-      with:
-        timeout_minutes: 30
-        max_attempts: 8
-        retry_on: error
-        retry_wait_seconds: 90
-        command: |
-          ./gradlew clean build --no-daemon --stacktrace \
-            -Dorg.gradle.internal.http.connectionTimeout=300000 \
-            -Dorg.gradle.internal.http.socketTimeout=300000 \
-            -Djava.net.preferIPv4Stack=true \
-            -Djava.net.preferIPv6Addresses=false
+    - name: Build with tests
+      run: |
+        ./gradlew clean build --no-daemon --stacktrace \
+          -Dorg.gradle.internal.http.connectionTimeout=180000 \
+          -Dorg.gradle.internal.http.socketTimeout=180000 \
+          -Djava.net.preferIPv4Stack=true \
+          -Djava.net.preferIPv6Addresses=false
 
     - name: Deep network diagnostics (on failure)
       if: failure()
