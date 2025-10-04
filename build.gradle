@@ -56,3 +56,11 @@ tasks.register('format') {
     group = 'formatting'
     dependsOn 'spotlessApply'
 }
+
+// Add application plugin to root project for running demos
+apply plugin: "application"
+
+application {
+    mainClass = "com.trading.service.backtest.BacktestDemo"
+}
+
