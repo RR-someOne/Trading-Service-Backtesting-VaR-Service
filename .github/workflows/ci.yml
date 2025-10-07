@@ -77,7 +77,7 @@ jobs:
           ~/.m2/repository
           build/
           app/build/
-        key: full-cache-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml', 'src/**', 'app/src/**') }}
+  key: full-cache-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml', 'src/**/*.java', 'app/src/**/*.java') }}
         restore-keys: |
           full-cache-${{ runner.os }}-
           gradle-${{ runner.os }}-
