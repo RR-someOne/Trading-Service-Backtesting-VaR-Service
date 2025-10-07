@@ -19,7 +19,6 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Early network hardening (disable IPv6, set DNS, force IPv4)
-      if: ${{ !env.ACT }}
       run: |
         echo "=== Early Network Hardening ==="
         echo 'net.ipv6.conf.all.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
@@ -126,29 +125,29 @@ jobs:
         # Create init script for repository mirrors
         mkdir -p ~/.gradle/init.d
         cat > ~/.gradle/init.d/mirror-repos.gradle << 'INITEOF'
+        // Simplified mirror configuration to avoid dynamic remove() issues under act
         allprojects {
-            repositories.all { ArtifactRepository repo ->
-                if (repo instanceof MavenArtifactRepository) {
-                    def originalUrl = repo.url.toString()
-                    if (originalUrl.startsWith('https://repo1.maven.org/maven2') ||
-                        originalUrl.startsWith('https://repo.maven.apache.org/maven2')) {
-                        // Add mirrors for Maven Central (optionally skip primary if MIRRORS_ONLY is set)
-                        remove repo
-                        if (!System.getenv('MIRRORS_ONLY')) {
-                            maven {
-                                url 'https://repo1.maven.org/maven2/'
-                                allowInsecureProtocol = false
-                            }
-                        }
-                        maven {
-                            url 'https://maven.aliyun.com/repository/central'
-                            allowInsecureProtocol = false
-                        }
-                        maven {
-                            url 'https://jcenter.bintray.com/'
-                            allowInsecureProtocol = false
-                        }
-                    }
+            repositories { RepositoryHandler handler ->
+                // When running under act we avoid attempting to remove existing repos; just append mirrors.
+                boolean underAct = System.getenv('ACT') != null
+                boolean mirrorsOnly = System.getenv('MIRRORS_ONLY') != null
+
+                if (mirrorsOnly && !underAct) {
+                    // Safe removal: collect first to avoid concurrent modification
+                    def existing = new ArrayList(handler)
+                    existing.each { r -> handler.remove(r) }
+                }
+
+                if (!mirrorsOnly) {
+                    mavenCentral()
+                }
+                maven {
+                    url 'https://maven.aliyun.com/repository/central'
+                    allowInsecureProtocol = false
+                }
+                maven {
+                    url 'https://jcenter.bintray.com/'
+                    allowInsecureProtocol = false
                 }
             }
         }
