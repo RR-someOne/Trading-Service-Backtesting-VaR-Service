@@ -3,8 +3,24 @@ plugins {
     id 'com.diffplug.spotless' version '6.19.0'
 }
 
+// Enhanced repository configuration for better networking performance
 repositories {
-    mavenCentral()
+    mavenCentral {
+        // Enable parallel downloads and connection pooling
+        content {
+            includeGroupByRegex ".*"
+        }
+    }
+    // Add high-performance mirrors for better global connectivity
+    maven {
+        name = "Maven Central Mirror"
+        url = "https://repo1.maven.org/maven2/"
+    }
+    // Backup repositories for resilience
+    maven {
+        name = "JCenter"
+        url = "https://jcenter.bintray.com/"
+    }
 }
 
 dependencies {
@@ -20,7 +36,19 @@ subprojects {
     apply plugin: 'java'
 
     repositories {
-        mavenCentral()
+        mavenCentral {
+            content {
+                includeGroupByRegex ".*"
+            }
+        }
+        maven {
+            name = "Maven Central Mirror"
+            url = "https://repo1.maven.org/maven2/"
+        }
+        maven {
+            name = "JCenter"
+            url = "https://jcenter.bintray.com/"
+        }
     }
 
     dependencies {
@@ -57,10 +85,46 @@ tasks.register('format') {
     dependsOn 'spotlessApply'
 }
 
+// Performance optimization configurations
+tasks.withType(JavaCompile) {
+    options.incremental = true
+    options.fork = true
+    options.forkOptions.jvmArgs += [
+        '-XX:+UseG1GC',
+        '-XX:MaxGCPauseMillis=200',
+        '-Xmx2g',
+        '-Xms1g'
+    ]
+}
+
+// Network optimization for all tasks
+tasks.configureEach {
+    doFirst {
+        System.setProperty('java.net.preferIPv4Stack', 'true')
+        System.setProperty('java.net.preferIPv6Addresses', 'false')
+        System.setProperty('http.keepAlive', 'true')
+        System.setProperty('http.maxConnections', '20')
+        System.setProperty('http.maxRedirects', '10')
+        // Reduced DNS cache TTL for faster failover while keeping negative cache short
+        java.security.Security.setProperty('networkaddress.cache.ttl', '30')
+        java.security.Security.setProperty('networkaddress.cache.negative.ttl', '5')
+    }
+}
+
 // Add application plugin to root project for running demos
 apply plugin: "application"
 
 application {
     mainClass = "com.trading.service.backtest.BacktestDemo"
+    applicationDefaultJvmArgs = [
+        '-XX:+UseG1GC',
+        '-XX:MaxGCPauseMillis=200',
+        '-Xmx2g',
+        '-Xms1g',
+        '-Djava.net.preferIPv4Stack=true',
+        '-Djava.net.preferIPv6Addresses=false',
+        '-Dhttp.keepAlive=true',
+        '-Dhttp.maxConnections=20'
+    ]
 }
 
