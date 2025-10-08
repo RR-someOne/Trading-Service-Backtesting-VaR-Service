@@ -4,6 +4,7 @@ import com.trading.service.data.ingestion.archive.LocalFileBatchArchiver;
 import com.trading.service.data.ingestion.config.IngestionConfig;
 import com.trading.service.data.ingestion.connector.MarketDataConnector;
 import com.trading.service.data.ingestion.connector.RestPollingMarketDataConnector;
+import com.trading.service.data.ingestion.gateway.IngestionGateway;
 import com.trading.service.data.ingestion.publish.MarketDataPublisher;
 import com.trading.service.data.ingestion.service.MarketDataIngestionService;
 import com.trading.service.data.ingestion.timeseries.FileCsvTimeSeriesWriter;
@@ -38,6 +39,10 @@ public final class Application {
         new RestPollingMarketDataConnector(
             URI.create("https://example.com/marketdata"), Duration.ofSeconds(5), sched);
     service.registerConnector(rest);
+
+    // Attach gateway for raw message parsing
+    IngestionGateway gateway = new IngestionGateway(service);
+    service.attachGateway(gateway);
     service.startAll();
 
     Runtime.getRuntime()
@@ -52,6 +57,11 @@ public final class Application {
                   sched.shutdownNow();
                 }));
 
-    System.out.println("Ingestion service started. Press Ctrl+C to exit.");
+    System.out.println(
+        "Ingestion service started with gateway. Parsed="
+            + gateway.getParsedCount()
+            + ", dropped="
+            + gateway.getDroppedCount()
+            + ". Ctrl+C to exit.");
   }
 }

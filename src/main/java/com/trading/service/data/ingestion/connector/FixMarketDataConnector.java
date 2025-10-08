@@ -7,10 +7,11 @@ import java.util.function.Consumer;
 
 /** Placeholder for FIX protocol connector (not implemented). */
 @SuppressWarnings("unused")
-public class FixMarketDataConnector implements MarketDataConnector {
+public class FixMarketDataConnector implements MarketDataConnector, RawMessageCapable {
   private final AtomicBoolean running = new AtomicBoolean();
   private volatile Consumer<MarketDataEvent> tickHandler = e -> {};
   private volatile Consumer<BarEvent> barHandler = e -> {};
+  private volatile Consumer<String> rawConsumer = s -> {};
 
   @Override
   public void start() {
@@ -30,6 +31,11 @@ public class FixMarketDataConnector implements MarketDataConnector {
   @Override
   public void setBarHandler(Consumer<BarEvent> handler) {
     this.barHandler = handler;
+  }
+
+  @Override
+  public void setRawMessageConsumer(Consumer<String> consumer) {
+    this.rawConsumer = consumer;
   }
 
   @Override

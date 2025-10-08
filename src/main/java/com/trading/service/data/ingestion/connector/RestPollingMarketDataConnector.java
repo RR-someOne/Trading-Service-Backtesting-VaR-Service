@@ -14,7 +14,7 @@ import java.util.function.Consumer;
 
 /** Simple REST polling connector (placeholder fetch + parse). */
 @SuppressWarnings("unused")
-public class RestPollingMarketDataConnector implements MarketDataConnector {
+public class RestPollingMarketDataConnector implements MarketDataConnector, RawMessageCapable {
   private final URI endpoint;
   private final Duration interval;
   private final ScheduledExecutorService scheduler;
@@ -22,6 +22,7 @@ public class RestPollingMarketDataConnector implements MarketDataConnector {
   private final AtomicBoolean running = new AtomicBoolean();
   private volatile Consumer<MarketDataEvent> tickHandler = e -> {};
   private volatile Consumer<BarEvent> barHandler = e -> {};
+  private volatile Consumer<String> rawConsumer = s -> {};
 
   public RestPollingMarketDataConnector(
       URI endpoint, Duration interval, ScheduledExecutorService scheduler) {
@@ -44,7 +45,8 @@ public class RestPollingMarketDataConnector implements MarketDataConnector {
           .sendAsync(req, HttpResponse.BodyHandlers.ofString())
           .thenAccept(
               r -> {
-                // TODO parse JSON -> events; placeholder dispatch
+                String body = r.body();
+                rawConsumer.accept(body);
                 tickHandler.accept(
                     new MarketDataEvent("DEMO", System.currentTimeMillis(), 0, 0, 0, 0));
               });
@@ -65,6 +67,11 @@ public class RestPollingMarketDataConnector implements MarketDataConnector {
   @Override
   public void setBarHandler(Consumer<BarEvent> handler) {
     this.barHandler = handler;
+  }
+
+  @Override
+  public void setRawMessageConsumer(Consumer<String> consumer) {
+    this.rawConsumer = consumer;
   }
 
   @Override

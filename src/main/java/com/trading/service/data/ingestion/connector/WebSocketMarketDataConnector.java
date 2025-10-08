@@ -14,12 +14,14 @@ import java.util.function.Consumer;
 
 /** Simplified WebSocket connector (illustrative). */
 @SuppressWarnings("unused")
-public class WebSocketMarketDataConnector extends AbstractReconnectableConnector {
+public class WebSocketMarketDataConnector extends AbstractReconnectableConnector
+    implements RawMessageCapable {
   private final URI uri;
   private final HttpClient client;
   private final AtomicReference<WebSocket> socket = new AtomicReference<>();
   private volatile Consumer<MarketDataEvent> tickHandler = e -> {};
   private volatile Consumer<BarEvent> barHandler = e -> {};
+  private volatile Consumer<String> rawConsumer = s -> {};
 
   public WebSocketMarketDataConnector(URI uri, ScheduledExecutorService sched) {
     super(sched, Duration.ofSeconds(5));
@@ -38,11 +40,11 @@ public class WebSocketMarketDataConnector extends AbstractReconnectableConnector
               public CompletionStage<?> onText(
                   WebSocket webSocket, CharSequence data, boolean last) {
                 webSocket.request(1);
-                // TODO parse inbound raw JSON -> MarketDataEvent/BarEvent; placeholder demo event
-                // dispatch
+                String payload = data.toString();
+                rawConsumer.accept(payload);
+                // Keep demo tick for now in case no gateway is attached
                 tickHandler.accept(
-                    new com.trading.service.data.ingestion.model.MarketDataEvent(
-                        "DEMO", System.currentTimeMillis(), 0.0, 0.0, 0.0, 0.0));
+                    new MarketDataEvent("DEMO", System.currentTimeMillis(), 0.0, 0.0, 0.0, 0.0));
                 return null;
               }
             })
@@ -77,5 +79,10 @@ public class WebSocketMarketDataConnector extends AbstractReconnectableConnector
   @Override
   public void setBarHandler(java.util.function.Consumer<BarEvent> handler) {
     this.barHandler = handler;
+  }
+
+  @Override
+  public void setRawMessageConsumer(Consumer<String> consumer) {
+    this.rawConsumer = consumer;
   }
 }
