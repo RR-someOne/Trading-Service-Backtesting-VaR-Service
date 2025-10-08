@@ -41,10 +41,12 @@ The project now includes an event-driven Market Data Ingestion pipeline designed
 
 ### Architecture Snapshot
 
-Connector(s) (WebSocket / REST polling / FIX stub) → IngressDispatcher (bounded queue) →
-    1. Kafka (ticks & bars topics)
-    2. Time-series writer (CSV prototype; pluggable for real DB)
-    3. Batch archiver (NDJSON for cold storage)
+Raw Feed → Connector(s) (WebSocket / REST polling / FIX stub, each optionally `RawMessageCapable`) →
+    IngestionGateway (JSON parse & normalize) → IngressDispatcher (bounded queue) →
+        1. Kafka (ticks & bars topics) via `MarketDataPublisher`
+        2. Time-series writer (CSV prototype; pluggable for real DB)
+        3. Batch archiver (NDJSON for cold storage)
+        4. (Optional) Tick Event Bus abstraction (`TickEventBus`) for downstream consumers / strategy engines
 
 Key packages:
 ```
@@ -202,6 +204,8 @@ Artifact uploads are skipped automatically when running under `act` (no `ACTIONS
 | Item | Status | Notes |
 |------|--------|-------|
 | Kafka JSON publishing | Done | Basic JSON serialization |
+| Ingestion Gateway (raw -> normalized) | Done | Centralizes parsing & validation |
+| RawMessageCapable connectors | Done | WebSocket/REST/FIX stubs forward raw payloads |
 | Pluggable serialization (Avro/Protobuf) | TODO | Schema registry integration |
 | Real connector parsers | TODO | Replace placeholder parsing logic |
 | Metrics & monitoring | TODO | Micrometer counters & timers |
@@ -210,6 +214,102 @@ Artifact uploads are skipped automatically when running under `act` (no `ACTIONS
 | S3/MinIO batch archiver | TODO | Multipart uploads + compression |
 | Time-series DB writer | TODO | JDBC batches / line protocol |
 | Replay & recovery | TODO | Offset + archival replay tooling |
+| Tick Event Bus abstraction | Done | `TickEventBus` + Kafka & Pulsar (stub) implementations |
+| Pulsar integration (real client) | TODO | Add Pulsar client dependency & config |
+| Event bus / publisher unification | TODO | Avoid dual JSON serialization paths |
+
+---
+
+### Ingestion Gateway Layer
+
+The `IngestionGateway` is a lightweight parsing & normalization layer inserted between raw connectors and the dispatcher. Responsibilities:
+
+1. Accept raw textual payloads (currently JSON strings)
+2. Parse into `MarketDataEvent` (tick) or `BarEvent` (OHLCV) via simple field heuristics
+3. Perform basic validation (required fields like `symbol` & OHLC set)
+4. Forward normalized objects into the `MarketDataIngestionService` (which enqueues them for fan-out)
+5. Maintain simple counters for parsed vs dropped messages (future: expose via metrics)
+
+Flow with gateway:
+
+```
+Connector (RawMessageCapable) -> rawConsumer.accept(payload)
+  -> IngestionGateway.onRaw(payload)
+     -> classify (tick|bar)
+     -> toTick / toBar -> service.submitTick/Bar -> IngressDispatcher
+        -> Kafka / TimeSeries / Archiver / (optionally) TickEventBus
+```
+
+Code snippet (from `Application`):
+
+```java
+IngestionGateway gateway = new IngestionGateway(service);
+service.attachGateway(gateway); // retrofits existing connectors
+```
+
+Adding a new raw-capable connector:
+
+```java
+public final class MyJsonSocketConnector extends AbstractReconnectableConnector implements RawMessageCapable {
+    private Consumer<String> raw = s -> {};
+    @Override public void setRawMessageConsumer(Consumer<String> c) { this.raw = c; }
+    // inside onText/onMessage:
+    // raw.accept(incomingPayload);
+}
+```
+
+### Tick Event Bus Abstraction
+
+To decouple downstream consumers (e.g., strategy engines, analytics) from the ingestion publishing mechanics, a `TickEventBus` interface was introduced:
+
+```java
+public interface TickEventBus extends AutoCloseable {
+    void publish(MarketDataEvent event);
+    void close();
+}
+```
+
+Implementations provided:
+
+| Implementation | Class | Status | Notes |
+|----------------|-------|--------|-------|
+| Kafka | `KafkaTickEventBus` | Ready | Mirror of existing publisher logic for ticks only |
+| Pulsar | `PulsarTickEventBus` | Stub | Placeholder; serialize JSON asynchronously (no real client yet) |
+
+Planned next steps:
+1. Optionally replace direct tick publishing in `IngressDispatcher` with a `TickEventBus` instance (reducing duplicate JSON serialization logic)
+2. Extend bus abstraction for bar events or unify via generic parameter / sealed hierarchy
+3. Wire bus selection via `IngestionConfig` (enum: KAFKA, PULSAR, NOOP)
+
+Example usage with a capturing in-memory bus (testing pattern):
+
+```java
+TickEventBus bus = new TickEventBus() {
+    final AtomicInteger count = new AtomicInteger();
+    public void publish(MarketDataEvent e) { count.incrementAndGet(); }
+    public void close() {}
+};
+bus.publish(new MarketDataEvent("TEST", System.currentTimeMillis(), 1,2,1.5,10));
+```
+
+### Why Gateway + Bus?
+
+| Concern | Gateway | Tick Event Bus |
+|---------|---------|----------------|
+| Parsing/Normalization | YES | NO |
+| Backpressure (queue) | Indirect (enqueues) | Depends on implementation |
+| Multi-sink fan-out | Indirect (dispatcher) | Out of scope (single channel) |
+| Extensibility (Pulsar, gRPC, WebSocket push) | Via connectors | Via new bus impls |
+| Metrics surface | Will expose counters | Per-bus metrics (publish latency, errors) |
+
+### Future Enhancements
+
+1. Replace heuristic JSON parsing with schema-based approach (Schema Registry, Protobuf, Avro)
+2. Introduce structured error logging / dead-letter path for malformed messages
+3. Expose gateway & dispatcher metrics via Micrometer
+4. Apply rate limiting / adaptive backpressure at gateway level
+5. Integrate a real Pulsar producer & optional multi-broker replication
+
 
 ---
 
