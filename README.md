@@ -35,6 +35,184 @@ Observable, testable, and deployable (Docker + CI).
 - API (REST/gRPC for status and control)
 - Monitoring (Prometheus/Grafana, logs)
 
+## Real-time Market Data Ingestion (NEW)
+
+The project now includes an event-driven Market Data Ingestion pipeline designed to normalize incoming tick/bar data and fan out to multiple sinks (Kafka, local time-series CSV, archival batch files).
+
+### Architecture Snapshot
+
+Connector(s) (WebSocket / REST polling / FIX stub) → IngressDispatcher (bounded queue) →
+    1. Kafka (ticks & bars topics)
+    2. Time-series writer (CSV prototype; pluggable for real DB)
+    3. Batch archiver (NDJSON for cold storage)
+
+Key packages:
+```
+com.trading.service.data.ingestion.config        # IngestionConfig
+com.trading.service.data.ingestion.model         # MarketDataEvent, BarEvent
+com.trading.service.data.ingestion.connector     # Connectors (WebSocket, REST, FIX stub)
+com.trading.service.data.ingestion.publish       # Publisher (Kafka), IngressDispatcher
+com.trading.service.data.ingestion.timeseries    # TimeSeriesWriter abstraction + CSV impl
+com.trading.service.data.ingestion.archive       # BatchArchiver abstraction + local impl
+com.trading.service.data.ingestion.service       # MarketDataIngestionService orchestrator
+```
+
+### Enabling the Ingestion Service
+
+The ingestion pipeline is disabled by default. Enable it by setting an environment variable before running the application:
+
+```bash
+ENABLE_INGESTION=true ./gradlew run
+```
+
+Or with Java directly:
+```bash
+ENABLE_INGESTION=true java -jar build/libs/<your-app>.jar
+```
+
+On startup with ingestion enabled you will see:
+```
+Trading Service with AI, Backtesting, VaR & Ingestion
+Ingestion service started. Press Ctrl+C to exit.
+```
+
+Generated output directories (default):
+```
+data-output/
+    ticks.csv               # Append-only CSV of tick events
+    bars.csv                # Append-only CSV of bar events
+    archive/
+        archive.ndjson        # Batched archival lines (placeholder format)
+```
+
+### Configuration (IngestionConfig)
+
+`IngestionConfig` uses a builder with sensible defaults. Override fields if needed:
+
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| kafkaBootstrapServers | `localhost:9092` | Kafka cluster bootstrap (comma-separated) |
+| tickTopic | `market-data-ticks` | Topic for raw/normalized tick events |
+| barTopic  | `market-data-bars`  | Topic for aggregated bars |
+| restPollInterval | 1s | Interval for REST polling connector |
+| dispatcherQueueCapacity | 50000 | Bounded queue size before backpressure (dropping via offer fail) |
+| archiverBatchSize | 10000 | Flush threshold for batch archiver |
+
+Example manual construction:
+```java
+IngestionConfig cfg = IngestionConfig.builder()
+        .kafkaBootstrapServers("redpanda:9092")
+        .tickTopic("ticks.demo")
+        .barTopic("bars.1m.demo")
+        .dispatcherQueueCapacity(100_000)
+        .build();
+```
+
+### Adding Custom Connectors
+
+Implement `MarketDataConnector`:
+```java
+public final class MyFeedConnector implements MarketDataConnector {
+    // setTickHandler(handler) & setBarHandler(handler) will be called by the service
+    public void start() { /* open socket / schedule polling */ }
+    public boolean isRunning() { return true; }
+    public void close() { /* cleanup */ }
+    public String name() { return "my-feed"; }
+}
+```
+Register with the ingestion service:
+```java
+MarketDataIngestionService service = ...;
+service.registerConnector(new MyFeedConnector());
+service.startAll();
+```
+
+### Kafka Topics & Serialization
+
+Currently events are serialized as JSON strings (Jackson) directly in `MarketDataPublisher`. For production quality:
+1. Introduce schema registry + Avro / Protobuf / JSON Schema.
+2. Add explicit version field to events.
+3. Add compression (producer config: `compression.type=zstd` or `lz4`).
+4. Consider partition strategy (symbol-based hashing for ordering per instrument).
+
+### Time-Series Storage Options
+
+The provided `FileCsvTimeSeriesWriter` is a minimal placeholder. To integrate a real database:
+1. Implement `TimeSeriesWriter` for TimescaleDB / QuestDB / InfluxDB.
+2. Batch inserts (JDBC batch or line protocol) to reduce write amplification.
+3. Add retention & compaction policy on the database side.
+
+### Archival Strategy
+
+`LocalFileBatchArchiver` accumulates a list in memory until `archiverBatchSize` then appends newline-delimited entries. Production replacements:
+ - Stream directly to object storage (S3 / MinIO) using multipart uploads.
+ - Include gzip compression.
+ - Partition by date (e.g., `s3://bucket/marketdata/YYYY/MM/DD/`).
+
+### Backpressure & Reliability
+
+Current dispatcher uses an `ArrayBlockingQueue` with non-blocking `offer`. When saturated events are silently dropped (implicit lossy mode). For stronger guarantees:
+1. Switch to blocking `put` and apply per-producer timeouts.
+2. Add metrics (dropped events, queue depth) via Micrometer.
+3. Use a ring buffer / Disruptor if ultra-low latency becomes necessary.
+
+### Graceful Shutdown
+
+Shutdown hook triggers:
+1. Connector `close()`
+2. Dispatcher drain + publisher close
+3. Writer flush & archiver flush
+
+### Local Development Without Kafka
+
+If Kafka isn’t running, the `MarketDataPublisher` will still create a producer; sends will attempt DNS/connection. For local experimentation without Kafka:
+1. Run a lightweight broker (Redpanda) via Docker:
+     ```bash
+     docker run -it --rm -p 9092:9092 -e REDPANDA_AUTO_CREATE_TOPICS=1 docker.redpanda.com/redpanda/redpanda:latest redpanda start --overprovisioned --smp 1 --memory 512M --reserve-memory 0M --check=false
+     ```
+2. Or implement a `NoopPublisher` (simple class implementing `Publisher` that does nothing) and inject it for tests.
+
+### Sample Minimal Startup Code
+```java
+IngestionConfig cfg = IngestionConfig.builder().build();
+MarketDataPublisher publisher = new MarketDataPublisher(cfg);
+FileCsvTimeSeriesWriter writer = new FileCsvTimeSeriesWriter(Path.of("data-output"));
+LocalFileBatchArchiver archiver = new LocalFileBatchArchiver(cfg, Path.of("data-output/archive"));
+MarketDataIngestionService service = new MarketDataIngestionService(cfg, publisher, writer, archiver);
+service.registerConnector(new RestPollingMarketDataConnector(URI.create("https://example.com/marketdata"), Duration.ofSeconds(5), Executors.newScheduledThreadPool(1)));
+service.startAll();
+```
+
+### Testing
+
+Unit test example: `IngestionDispatcherTest` validates that tick & bar submissions fan out to all sinks using stub implementations (no Kafka needed). To extend coverage:
+1. Add integration test with embedded Kafka or Testcontainers.
+2. Add performance test measuring max sustainable ticks/sec.
+
+Run only ingestion tests:
+```bash
+./gradlew test --tests "*IngestionDispatcherTest"
+```
+
+### CI & Local `act` Note
+
+Artifact uploads are skipped automatically when running under `act` (no `ACTIONS_RUNTIME_TOKEN`). This keeps local dry-runs green. Real CI (GitHub hosted) still uploads build & test artifacts.
+
+### Roadmap (Proposed)
+| Item | Status | Notes |
+|------|--------|-------|
+| Kafka JSON publishing | Done | Basic JSON serialization |
+| Pluggable serialization (Avro/Protobuf) | TODO | Schema registry integration |
+| Real connector parsers | TODO | Replace placeholder parsing logic |
+| Metrics & monitoring | TODO | Micrometer counters & timers |
+| Backpressure metrics | TODO | Dropped event counter |
+| Embedded Kafka integration test | TODO | Testcontainers |
+| S3/MinIO batch archiver | TODO | Multipart uploads + compression |
+| Time-series DB writer | TODO | JDBC batches / line protocol |
+| Replay & recovery | TODO | Offset + archival replay tooling |
+
+---
+
 ## Neural Translation System
 
 ### Overview
