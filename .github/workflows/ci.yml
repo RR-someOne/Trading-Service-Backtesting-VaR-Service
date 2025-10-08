@@ -18,6 +18,16 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Detect runtime environment (GitHub vs act)
+      run: |
+        if [ -n "${ACT:-}" ]; then
+          echo "RUN_ENV=local-act" >> $GITHUB_ENV
+          echo "Detected local act environment"
+        else
+          echo "RUN_ENV=gha" >> $GITHUB_ENV
+          echo "Detected GitHub Actions environment"
+        fi
+
     - name: Early network hardening (disable IPv6, set DNS, force IPv4)
       run: |
         echo "=== Early Network Hardening ==="
@@ -35,6 +45,7 @@ jobs:
 
     - name: Pre-flight connectivity warm-up
       run: |
+        if [ "${RUN_ENV}" = "local-act" ]; then echo "Skipping warm-up under act"; exit 0; fi
         echo "=== Pre-flight Network Warm-Up ==="
         hosts=(repo.maven.apache.org repo1.maven.org plugins.gradle.org api.github.com)
         unreachable=0
@@ -82,11 +93,17 @@ jobs:
           full-cache-${{ runner.os }}-
           gradle-${{ runner.os }}-
           
-    - name: Setup Gradle
+    - name: Setup Gradle (CI optimized)
       uses: gradle/actions/setup-gradle@v3
       with:
         cache-disabled: false
         cache-read-only: false
+
+    - name: Setup Gradle (local minimal)
+      if: ${{ always() }}
+      run: |
+        if [ "${RUN_ENV}" != "local-act" ]; then echo "Not local act run; skipping minimal setup"; exit 0; fi
+        echo "Local run (act): skipping Gradle action; wrapper will download distribution directly"
 
     # (Legacy step removed: IPv6 disable now executed earlier)
         
@@ -166,6 +183,7 @@ jobs:
 
     - name: Check external services and network diagnostics
       run: |
+        if [ "${RUN_ENV}" = "local-act" ]; then echo "Skipping external diagnostics under act"; exit 0; fi
         echo "=== Network and External Service Diagnostics ==="
         
         echo "System networking info:"
@@ -233,6 +251,7 @@ jobs:
     - name: Deep network diagnostics (on failure)
       if: failure()
       run: |
+        if [ "${RUN_ENV}" = "local-act" ]; then echo "Skipping deep diagnostics under act"; exit 0; fi
         echo "=== Deep Network Diagnostics ==="
         echo "Active sockets (first 50):"; ss -tan | head -50 || true
         echo "Traceroute to repo.maven.apache.org:"; (traceroute -4 repo.maven.apache.org || tracepath repo.maven.apache.org || true)
@@ -261,8 +280,8 @@ jobs:
         }
 
     - name: Upload test results
-      uses: actions/upload-artifact@v4
       if: always()
+      uses: actions/upload-artifact@v4
       with:
         name: test-results
         path: |
@@ -271,10 +290,11 @@ jobs:
           build/reports/
           app/build/reports/
         retention-days: 30
+      continue-on-error: true
 
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
       if: success()
+      uses: actions/upload-artifact@v4
       with:
         name: build-artifacts
         path: |
@@ -283,3 +303,4 @@ jobs:
           build/distributions/
           app/build/distributions/
         retention-days: 7
+      continue-on-error: true
