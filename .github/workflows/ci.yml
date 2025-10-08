@@ -18,13 +18,16 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Detect runtime environment (GitHub vs act)
+    - id: detect-env
+      name: Detect runtime environment (GitHub vs act)
       run: |
         if [ -n "${ACT:-}" ]; then
           echo "RUN_ENV=local-act" >> $GITHUB_ENV
+          echo "run_env=local-act" >> $GITHUB_OUTPUT
           echo "Detected local act environment"
         else
           echo "RUN_ENV=gha" >> $GITHUB_ENV
+          echo "run_env=gha" >> $GITHUB_OUTPUT
           echo "Detected GitHub Actions environment"
         fi
 
@@ -279,8 +282,8 @@ jobs:
           exit 1
         }
 
-    - name: Upload test results
-      if: always()
+    - name: Upload test results (GitHub only)
+      if: always() && steps.detect-env.outputs.run_env == 'gha'
       uses: actions/upload-artifact@v4
       with:
         name: test-results
@@ -292,8 +295,12 @@ jobs:
         retention-days: 30
       continue-on-error: true
 
-    - name: Upload build artifacts
-      if: success()
+    - name: Skip test results upload locally
+      if: steps.detect-env.outputs.run_env == 'local-act'
+      run: echo "Skipping artifact upload under act (no ACTIONS_RUNTIME_TOKEN)."
+
+    - name: Upload build artifacts (GitHub only)
+      if: success() && steps.detect-env.outputs.run_env == 'gha'
       uses: actions/upload-artifact@v4
       with:
         name: build-artifacts
@@ -304,3 +311,7 @@ jobs:
           app/build/distributions/
         retention-days: 7
       continue-on-error: true
+
+    - name: Skip build artifacts upload locally
+      if: steps.detect-env.outputs.run_env == 'local-act'
+      run: echo "Skipping build artifact upload under act (no ACTIONS_RUNTIME_TOKEN)."

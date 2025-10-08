@@ -3,6 +3,12 @@ plugins {
     id 'com.diffplug.spotless' version '6.19.0'
 }
 
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
 // Enhanced repository configuration for better networking performance
 repositories {
     mavenCentral {
@@ -29,6 +35,8 @@ dependencies {
     implementation 'com.fasterxml.jackson.core:jackson-annotations:2.15.2'
     implementation 'com.fasterxml.jackson.core:jackson-core:2.15.2'
     implementation 'com.microsoft.onnxruntime:onnxruntime:1.18.0'
+    // Event bus & ingestion
+    implementation 'org.apache.kafka:kafka-clients:3.7.0'
 }
 
 // Apply commons-math to subprojects so modules (like `app`) can use it.
