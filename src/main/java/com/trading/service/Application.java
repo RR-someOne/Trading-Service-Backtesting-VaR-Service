@@ -8,6 +8,8 @@ import com.trading.service.data.ingestion.gateway.IngestionGateway;
 import com.trading.service.data.ingestion.publish.MarketDataPublisher;
 import com.trading.service.data.ingestion.service.MarketDataIngestionService;
 import com.trading.service.data.ingestion.timeseries.FileCsvTimeSeriesWriter;
+import com.trading.service.persistence.featurestore.CsvTimeSeriesRepository;
+import com.trading.service.persistence.featurestore.InHouseFeatureStore;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -35,6 +37,11 @@ public final class Application {
     MarketDataIngestionService service =
         new MarketDataIngestionService(cfg, publisher, writer, archiver);
 
+    // Feature Store: durable CSV-backed time-series + deterministic rolling features
+    CsvTimeSeriesRepository featureRepo = new CsvTimeSeriesRepository(Path.of("feature-data"));
+    InHouseFeatureStore featureStore = new InHouseFeatureStore(featureRepo, 20, 252.0);
+    service.attachFeatureStore(featureStore);
+
     MarketDataConnector rest =
         new RestPollingMarketDataConnector(
             URI.create("https://example.com/marketdata"), Duration.ofSeconds(5), sched);
@@ -52,6 +59,10 @@ public final class Application {
                   System.out.println("Shutting down ingestion...");
                   try {
                     service.close();
+                  } catch (Exception ignored) {
+                  }
+                  try {
+                    featureRepo.close();
                   } catch (Exception ignored) {
                   }
                   sched.shutdownNow();

@@ -10,6 +10,7 @@ import com.trading.service.data.ingestion.model.MarketDataEvent;
 import com.trading.service.data.ingestion.publish.IngressDispatcher;
 import com.trading.service.data.ingestion.publish.Publisher;
 import com.trading.service.data.ingestion.timeseries.TimeSeriesWriter;
+import com.trading.service.persistence.featurestore.FeatureStore;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -21,6 +22,7 @@ public class MarketDataIngestionService implements AutoCloseable {
   private final IngressDispatcher dispatcher;
   private final List<MarketDataConnector> connectors = new ArrayList<>();
   private IngestionGateway gateway; // optional
+  private FeatureStore featureStore; // optional
 
   public MarketDataIngestionService(
       IngestionConfig cfg, Publisher publisher, TimeSeriesWriter writer, BatchArchiver archiver) {
@@ -56,6 +58,13 @@ public class MarketDataIngestionService implements AutoCloseable {
   }
 
   private void onBar(BarEvent e) {
+    // Ingest feature store (close price at bar end) before dispatch
+    if (featureStore != null) {
+      try {
+        featureStore.ingestClose(e.symbol(), e.endEpochMillis(), e.close());
+      } catch (Exception ignored) {
+      }
+    }
     dispatcher.submitBar(e);
   }
 
@@ -69,7 +78,23 @@ public class MarketDataIngestionService implements AutoCloseable {
   }
 
   public void submitBar(BarEvent e) {
+    if (featureStore != null) {
+      try {
+        featureStore.ingestClose(e.symbol(), e.endEpochMillis(), e.close());
+      } catch (Exception ignored) {
+      }
+    }
     dispatcher.submitBar(e);
+  }
+
+  // Feature Store wiring
+  public void attachFeatureStore(FeatureStore fs) {
+    this.featureStore = fs;
+  }
+
+  public java.util.Map<String, Double> getFeatures(String symbol, long ts) {
+    if (featureStore == null) return java.util.Collections.emptyMap();
+    return featureStore.getFeatures(symbol, ts);
   }
 
   @Override
