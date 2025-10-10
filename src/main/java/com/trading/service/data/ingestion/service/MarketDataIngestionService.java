@@ -72,6 +72,26 @@ public class MarketDataIngestionService implements AutoCloseable {
     connectors.forEach(MarketDataConnector::start);
   }
 
+  public void stopAll() {
+    connectors.forEach(
+        c -> {
+          try {
+            c.close();
+          } catch (Exception ignored) {
+          }
+        });
+  }
+
+  public boolean isRunning() {
+    for (MarketDataConnector c : connectors) {
+      try {
+        if (c.isRunning()) return true;
+      } catch (Exception ignored) {
+      }
+    }
+    return false;
+  }
+
   // Gateway submission hooks
   public void submitTick(MarketDataEvent e) {
     dispatcher.submitTick(e);

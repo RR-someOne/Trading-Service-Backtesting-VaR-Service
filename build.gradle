@@ -37,6 +37,20 @@ dependencies {
     implementation 'com.microsoft.onnxruntime:onnxruntime:1.18.0'
     // Event bus & ingestion
     implementation 'org.apache.kafka:kafka-clients:3.7.0'
+
+    // REST API
+    implementation 'io.javalin:javalin:5.6.3'
+    implementation 'ch.qos.logback:logback-classic:1.4.14'
+
+    // gRPC
+    implementation 'io.grpc:grpc-netty-shaded:1.65.1'
+    implementation 'io.grpc:grpc-protobuf:1.65.1'
+    implementation 'io.grpc:grpc-stub:1.65.1'
+
+    // AWS Secrets Manager
+    implementation 'software.amazon.awssdk:regions:2.25.50'
+    implementation 'software.amazon.awssdk:auth:2.25.50'
+    implementation 'software.amazon.awssdk:secretsmanager:2.25.50'
 }
 
 // Apply commons-math to subprojects so modules (like `app`) can use it.
@@ -134,5 +148,21 @@ application {
         '-Dhttp.keepAlive=true',
         '-Dhttp.maxConnections=20'
     ]
+}
+
+// Convenience task to run the main Application server
+tasks.register('runApplication', JavaExec) {
+    group = 'application'
+    description = 'Run com.trading.service.Application (ingestion + REST API)'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.trading.service.Application'
+}
+
+// Convenience task to run the standalone API server (no ingestion/Kafka required)
+tasks.register('runApiServer', JavaExec) {
+    group = 'application'
+    description = 'Run com.trading.service.api.ApiServer (REST + gRPC only)'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.trading.service.api.ApiServer'
 }
 

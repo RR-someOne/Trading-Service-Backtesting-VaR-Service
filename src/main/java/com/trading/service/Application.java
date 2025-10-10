@@ -1,11 +1,15 @@
 package com.trading.service;
 
+import com.trading.service.api.ControlHandler;
+import com.trading.service.api.RestApiServer;
 import com.trading.service.data.ingestion.archive.LocalFileBatchArchiver;
 import com.trading.service.data.ingestion.config.IngestionConfig;
 import com.trading.service.data.ingestion.connector.MarketDataConnector;
 import com.trading.service.data.ingestion.connector.RestPollingMarketDataConnector;
 import com.trading.service.data.ingestion.gateway.IngestionGateway;
 import com.trading.service.data.ingestion.publish.MarketDataPublisher;
+import com.trading.service.data.ingestion.publish.NoOpPublisher;
+import com.trading.service.data.ingestion.publish.Publisher;
 import com.trading.service.data.ingestion.service.MarketDataIngestionService;
 import com.trading.service.data.ingestion.timeseries.FileCsvTimeSeriesWriter;
 import com.trading.service.persistence.featurestore.CsvTimeSeriesRepository;
@@ -30,7 +34,13 @@ public final class Application {
 
     IngestionConfig cfg = IngestionConfig.builder().build();
     ScheduledExecutorService sched = Executors.newScheduledThreadPool(2);
-    MarketDataPublisher publisher = new MarketDataPublisher(cfg);
+    boolean kafkaEnabled =
+        Boolean.parseBoolean(System.getenv().getOrDefault("KAFKA_ENABLED", "false"));
+    Publisher publisher = kafkaEnabled ? new MarketDataPublisher(cfg) : new NoOpPublisher();
+    if (!kafkaEnabled) {
+      System.out.println(
+          "KAFKA_ENABLED is false. Using NoOpPublisher; events won't be sent to Kafka.");
+    }
     FileCsvTimeSeriesWriter writer = new FileCsvTimeSeriesWriter(Path.of("data-output"));
     LocalFileBatchArchiver archiver =
         new LocalFileBatchArchiver(cfg, Path.of("data-output/archive"));
@@ -52,6 +62,36 @@ public final class Application {
     service.attachGateway(gateway);
     service.startAll();
 
+    // Optional REST API for status/control
+    boolean enableApi = Boolean.parseBoolean(System.getenv().getOrDefault("ENABLE_API", "true"));
+    RestApiServer restServer = null;
+    if (enableApi) {
+      String apiKey = System.getenv().getOrDefault("API_KEY", "");
+      int restPort = Integer.parseInt(System.getenv().getOrDefault("API_REST_PORT", "8080"));
+      ControlHandler handler =
+          new ControlHandler() {
+            @Override
+            public void startIngestion() {
+              service.startAll();
+            }
+
+            @Override
+            public void stopIngestion() {
+              service.stopAll();
+            }
+
+            @Override
+            public java.util.Map<String, Object> status() {
+              return java.util.Map.of(
+                  "ingestionRunning", service.isRunning(),
+                  "parsed", gateway.getParsedCount(),
+                  "dropped", gateway.getDroppedCount());
+            }
+          };
+      restServer = new RestApiServer(restPort, apiKey, handler);
+    }
+
+    final RestApiServer restServerRef = restServer;
     Runtime.getRuntime()
         .addShutdownHook(
             new Thread(
@@ -59,6 +99,10 @@ public final class Application {
                   System.out.println("Shutting down ingestion...");
                   try {
                     service.close();
+                  } catch (Exception ignored) {
+                  }
+                  try {
+                    if (restServerRef != null) restServerRef.close();
                   } catch (Exception ignored) {
                   }
                   try {

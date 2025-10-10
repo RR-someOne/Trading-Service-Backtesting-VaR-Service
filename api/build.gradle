@@ -1,0 +1,37 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // REST server
+    implementation 'io.javalin:javalin:5.6.3'
+    implementation 'ch.qos.logback:logback-classic:1.4.14'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
+
+    // gRPC
+    implementation 'io.grpc:grpc-netty-shaded:1.65.1'
+    implementation 'io.grpc:grpc-protobuf:1.65.1'
+    implementation 'io.grpc:grpc-stub:1.65.1'
+
+    // Secrets providers (optional at runtime)
+    implementation 'software.amazon.awssdk:secretsmanager:2.25.50'
+    implementation 'software.amazon.awssdk:auth:2.25.50'
+    implementation 'org.apache.httpcomponents.client5:httpclient5:5.3.1'
+
+    testImplementation 'junit:junit:4.13.2'
+}
+
+application {
+    mainClass = 'com.trading.service.api.ApiServer'
+}
