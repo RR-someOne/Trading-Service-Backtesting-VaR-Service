@@ -11,6 +11,17 @@ try:
 except Exception:  # pragma: no cover
     T5Summarizer = None
 
+# Optional ONNX backends
+try:
+    from .onnx_bart_model import OnnxBartSummarizer
+except Exception:  # pragma: no cover
+    OnnxBartSummarizer = None
+
+try:
+    from .onnx_t5_model import OnnxT5Summarizer
+except Exception:  # pragma: no cover
+    OnnxT5Summarizer = None
+
 
 @dataclass
 class SummaryOutput:
@@ -18,9 +29,9 @@ class SummaryOutput:
 
 
 class SummarizationPipeline:
-    """Unified interface to switch between BART and T5 backends."""
+    """Unified interface to switch between BART/T5 and their ONNX backends."""
 
-    def __init__(self, backend: Literal["bart", "t5"] = "bart") -> None:
+    def __init__(self, backend: Literal["bart", "t5", "bart-onnx", "t5-onnx"] = "bart") -> None:
         self.backend = backend
         if backend == "bart":
             if BartSummarizer is None:
@@ -30,6 +41,14 @@ class SummarizationPipeline:
             if T5Summarizer is None:
                 raise RuntimeError("T5 not available. Install transformers+torch.")
             self.impl = T5Summarizer()
+        elif backend == "bart-onnx":
+            if OnnxBartSummarizer is None:
+                raise RuntimeError("BART ONNX not available. Install optimum[onnxruntime] and transformers.")
+            self.impl = OnnxBartSummarizer()
+        elif backend == "t5-onnx":
+            if OnnxT5Summarizer is None:
+                raise RuntimeError("T5 ONNX not available. Install optimum[onnxruntime] and transformers.")
+            self.impl = OnnxT5Summarizer()
         else:
             raise ValueError(f"Unknown backend: {backend}")
 

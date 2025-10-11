@@ -49,3 +49,25 @@ def test_t5_backend_with_monkeypatch(monkeypatch):
     pipe = sp.SummarizationPipeline(backend="t5")
     out = pipe("Another long 10-K narrative.")
     assert out.summary_text == "DUMMY"
+
+
+def test_bart_onnx_backend_with_monkeypatch(monkeypatch):
+    import model.summarization_models as pkg
+    import model.summarization_models.pipeline as sp
+
+    monkeypatch.setattr(pkg._space, "OnnxBartSummarizer", _FakeSummarizer, raising=False)
+
+    pipe = sp.SummarizationPipeline(backend="bart-onnx")
+    out = pipe("ONNX path for BART.")
+    assert out.summary_text == "DUMMY"
+
+
+def test_t5_onnx_backend_with_monkeypatch(monkeypatch):
+    import model.summarization_models as pkg
+    import model.summarization_models.pipeline as sp
+
+    monkeypatch.setattr(pkg._space, "OnnxT5Summarizer", _FakeSummarizer, raising=False)
+
+    pipe = sp.SummarizationPipeline(backend="t5-onnx")
+    out = pipe("ONNX path for T5.")
+    assert out.summary_text == "DUMMY"
