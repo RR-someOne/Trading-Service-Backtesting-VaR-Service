@@ -150,6 +150,16 @@ application {
     ]
 }
 
+// Exclude legacy/stray Java sources that shouldn't be compiled
+sourceSets {
+    main {
+        java {
+            exclude '**/model/sentiment/**'
+            exclude '**/Sentiment Analysis Models/**'
+        }
+    }
+}
+
 // Convenience task to run the main Application server
 tasks.register('runApplication', JavaExec) {
     group = 'application'
