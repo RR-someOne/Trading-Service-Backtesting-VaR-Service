@@ -156,6 +156,7 @@ sourceSets {
         java {
             exclude '**/model/sentiment/**'
             exclude '**/Sentiment Analysis Models/**'
+            exclude '**/Summarization Models/**'
         }
     }
 }
