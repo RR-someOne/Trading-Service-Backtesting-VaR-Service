@@ -13,7 +13,9 @@ class Section:
 
 
 def split_paragraphs(text: str) -> List[str]:
-    parts = [p.strip() for p in re.split(r"\n\s*\n+", text or "")]
+    # Preserve input line structure to keep headers on their own lines when possible
+    # Split on 2+ consecutive newlines as paragraph boundaries
+    parts = [p.strip() for p in re.split(r"\n{2,}", text or "")]
     return [p for p in parts if p]
 
 
@@ -23,10 +25,12 @@ def detect_sections(text: str) -> List[Section]:
     current_title = "General"
     current_paras: List[str] = []
     for p in paras:
-        if _HEADER_RE.match(p.split("\n", 1)[0]):
+        # Consider header if the first non-empty line of the paragraph matches
+        first_line = next((ln for ln in p.split("\n") if ln.strip()), "")
+        if _HEADER_RE.match(first_line):
             if current_paras:
                 sections.append(Section(title=current_title, paragraphs=current_paras))
-            current_title = p.split("\n", 1)[0][:120]
+            current_title = first_line[:120]
             current_paras = []
         else:
             current_paras.append(p)

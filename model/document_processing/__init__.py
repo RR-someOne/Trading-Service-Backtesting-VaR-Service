@@ -17,6 +17,11 @@ def _load(name: str, file: str):
 _clean = _load('cleaning', 'cleaning.py')
 _parse = _load('parsing', 'parsing.py')
 _feat = _load('features', 'features.py')
+# Ensure package-qualified names resolve for relative imports
+sys.modules['model.document_processing.cleaning'] = _clean
+sys.modules['model.document_processing.parsing'] = _parse
+sys.modules['model.document_processing.features'] = _feat
+_xform = _load('transform', 'transform.py')
 
 # Re-export public API
 strip_html = _clean.strip_html
@@ -30,3 +35,12 @@ extract_title_and_abstract = _parse.extract_title_and_abstract
 
 DocFeatures = _feat.DocFeatures
 compute_features = _feat.compute_features
+
+# Transform API
+StructuredSection = _xform.StructuredSection
+StructuredDocument = _xform.StructuredDocument
+TradingFeatures = _xform.TradingFeatures
+transform_document = _xform.transform_document
+split_for_sentiment = _xform.split_for_sentiment
+split_for_summarization = _xform.split_for_summarization
+compute_trading_features = _xform.compute_trading_features
