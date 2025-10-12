@@ -80,6 +80,16 @@ jobs:
     - name: Validate Gradle wrapper
       uses: gradle/actions/wrapper-validation@v3
 
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Python tooling
+      run: |
+        python -m pip install --upgrade pip
+        pip install black==24.8.0 pytest
+
     - name: Cache all dependencies and build artifacts
       uses: actions/cache@v4
       with:
@@ -240,7 +250,12 @@ jobs:
         ./gradlew --no-daemon --stacktrace :dependencies -q || true
         ./gradlew --no-daemon --stacktrace classes testClasses -x test || true
 
-    - name: Check code formatting
+    - name: Check Python formatting (Black)
+      run: |
+        echo "Checking Python formatting with Black"
+        black --check .
+
+    - name: Check Java formatting (Spotless)
       run: ./gradlew spotlessCheck --no-daemon --stacktrace
 
     - name: Build with tests
